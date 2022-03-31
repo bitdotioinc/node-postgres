@@ -1,6 +1,6 @@
 'use strict'
 
-var net = require('net')
+const WebSocketStream = require('websocket-stream');
 var EventEmitter = require('events').EventEmitter
 
 const { parse, serialize } = require('pg-protocol')
@@ -14,9 +14,27 @@ class Connection extends EventEmitter {
   constructor(config) {
     super()
     config = config || {}
-    this.stream = config.stream || new net.Socket()
-    this._keepAlive = config.keepAlive
-    this._keepAliveInitialDelayMillis = config.keepAliveInitialDelayMillis
+    this.placeholderStream = false
+    this.stream = config.stream // possibly null: if so, temporarily use placeholder and lazily make the stream on connect()
+                                // since websocketstream attempts to connect on construction
+    if(!this.stream) {
+      var placeholder = {
+        once: function(){},
+        on: function(){},
+        end: function() {},
+        write: function(){},
+        writable: false,
+        socket: {
+          close: function(){},
+          _socket: {
+            ref: function(){},
+            unref: function(){}
+          }
+        } 
+      }
+      this.stream = placeholder
+      this.placeholderStream = true
+    } 
     this.lastBuffer = false
     this.parsedStatements = {}
     this.ssl = config.ssl || false
@@ -31,16 +49,20 @@ class Connection extends EventEmitter {
   }
 
   connect(port, host) {
+    if(this.placeholderStream) {
+      if(port && host) {
+        var url = 'ws://'+host+':'+port;
+      } else {
+        var url = 'ws://localhost:5432'
+      }
+      this.stream = new WebSocketStream(url)
+      this.placeholderStream = false
+    }
     var self = this
 
     this._connecting = true
-    this.stream.setNoDelay(true)
-    this.stream.connect(port, host)
 
     this.stream.once('connect', function () {
-      if (self._keepAlive) {
-        self.stream.setKeepAlive(true, self._keepAliveInitialDelayMillis)
-      }
       self.emit('connect')
     })
 
@@ -52,7 +74,6 @@ class Connection extends EventEmitter {
       self.emit('error', error)
     }
     this.stream.on('error', reportStreamError)
-
     this.stream.on('close', function () {
       self.emit('end')
     })
@@ -75,10 +96,10 @@ class Connection extends EventEmitter {
           return self.emit('error', new Error('There was an error establishing an SSL connection'))
       }
       var tls = require('tls')
+      var { isIP } = require('is-ip')
       const options = {
         socket: self.stream,
       }
-
       if (self.ssl !== true) {
         Object.assign(options, self.ssl)
 
@@ -87,7 +108,7 @@ class Connection extends EventEmitter {
         }
       }
 
-      if (net.isIP(host) === 0) {
+      if (!isIP(host)) {
         options.servername = host
       }
       try {
@@ -178,22 +199,35 @@ class Connection extends EventEmitter {
   }
 
   ref() {
-    this.stream.ref()
+    this.stream.socket._socket.ref()
   }
 
   unref() {
-    this.stream.unref()
+    this.stream.socket._socket.unref()
   }
 
   end() {
     // 0x58 = 'X'
     this._ending = true
     if (!this._connecting || !this.stream.writable) {
-      this.stream.end()
+      if(this.stream.socket) {
+        // if we don't pass in 'data' parameter to socket.close(), 
+        // the server might send a 1005 close code in response (no status code present)
+        // and ws will error upon receiving the 1005 code
+        this.stream.socket.close(1000, 'connection.end called')
+      } else {
+        this.stream.end()
+      }
       return
     }
     return this.stream.write(endBuffer, () => {
-      this.stream.end()
+      // checking for stream.socket is purely for unit/integration test purposes 
+      // websockets use stream.socket.close() while the streams used in testing use stream.end()
+      if(this.stream.socket) {
+        this.stream.socket.close(1000, 'connection.end called')
+      } else {
+        this.stream.end()
+      }
     })
   }
 

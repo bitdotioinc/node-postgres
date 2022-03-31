@@ -2,6 +2,7 @@
 var helper = require('./test-helper')
 var Connection = require('../../../lib/connection')
 var net = require('net')
+const { WebSocketServer } = require('ws')
 
 const suite = new helper.Suite()
 
@@ -62,14 +63,15 @@ for (const tc of SSLNegotiationPacketTests) {
   suite.test(tc.testName, function (done) {
     // our fake postgres server
     var socket
-    var server = net.createServer(function (c) {
+    var wss = new WebSocketServer({port: 7778})
+    wss.on('connection', function (c) {
       socket = c
-      c.once('data', function (data) {
-        c.write(Buffer.from(tc.response))
+      c.once('message', function (data) {
+        c.send(tc.response)
       })
     })
 
-    server.listen(7778, function () {
+    wss.on('listening', function () {
       var con = new Connection({ ssl: true })
       con.connect(7778, 'localhost')
       assert.emits(con, tc.responseType, function (err) {
@@ -77,8 +79,8 @@ for (const tc of SSLNegotiationPacketTests) {
           assert.equal(err.message, tc.errorMessage)
         }
         con.end()
-        socket.destroy()
-        server.close()
+        socket.terminate()
+        wss.close()
         done()
       })
       con.requestSsl()

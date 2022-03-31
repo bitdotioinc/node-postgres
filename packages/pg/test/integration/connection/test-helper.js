@@ -3,10 +3,12 @@ var net = require('net')
 var helper = require('../test-helper')
 var Connection = require('../../../lib/connection')
 var utils = require('../../../lib/utils')
+const WebSocketStream = require('websocket-stream')
 var connect = function (callback) {
   var username = helper.args.user
   var database = helper.args.database
-  var con = new Connection({ stream: new net.Stream() })
+  // var con = new Connection({ stream: new net.Stream() })
+  var con = new Connection({stream: new WebSocketStream('ws://localhost:5432')})
   con.on('error', function (error) {
     console.log(error)
     throw new Error('Connection error')

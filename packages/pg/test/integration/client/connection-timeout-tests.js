@@ -1,5 +1,5 @@
 'use strict'
-const net = require('net')
+const { WebSocketServer } = require('ws')
 const buffers = require('../../test-buffers')
 const helper = require('./test-helper')
 
@@ -16,22 +16,22 @@ const options = {
 const serverWithConnectionTimeout = (port, timeout, callback) => {
   const sockets = new Set()
 
-  const server = net.createServer((socket) => {
+  const wss = new WebSocketServer({port: port})
+  wss.on('connection', (socket) => {
     sockets.add(socket)
-    socket.once('end', () => sockets.delete(socket))
-
-    socket.on('data', (data) => {
+    socket.once('close', () => sockets.delete(socket))
+    socket.on('message', (data) => {
       // deny request for SSL
       if (data.length === 8) {
-        socket.write(Buffer.from('N', 'utf8'))
+        socket.send(Buffer.from('N', 'utf8'))
         // consider all authentication requests as good
       } else if (!data[0]) {
-        socket.write(buffers.authenticationOk())
+        socket.send(buffers.authenticationOk())
         // send ReadyForQuery `timeout` ms after authentication
-        setTimeout(() => socket.write(buffers.readyForQuery()), timeout).unref()
+        setTimeout(() => socket.send(buffers.readyForQuery()), timeout).unref()
         // respond with our canned response
       } else {
-        socket.write(buffers.readyForQuery())
+        socket.send(buffers.readyForQuery())
       }
     })
   })
@@ -41,13 +41,12 @@ const serverWithConnectionTimeout = (port, timeout, callback) => {
     if (closing) return
     closing = true
 
-    server.close(done)
+    wss.close(done)
     for (const socket of sockets) {
-      socket.destroy()
+      socket.terminate()
     }
   }
-
-  server.listen(port, options.host, () => callback(closeServer))
+  wss.on('listening', () => callback(closeServer))
 }
 
 suite.test('successful connection', (done) => {

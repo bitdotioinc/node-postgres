@@ -3,7 +3,7 @@ var buffers = require('../../test-buffers')
 var helper = require('./test-helper')
 var suite = new helper.Suite()
 
-var net = require('net')
+const { WebSocketServer } = require('ws')
 
 var Server = function (response) {
   this.server = undefined
@@ -17,42 +17,42 @@ Server.prototype.start = function (cb) {
   // it responds with our specified response immediatley after receiving every buffer
   // this is sufficient into convincing the client its connectet to a valid backend
   // if we respond with a readyForQuery message
-  this.server = net.createServer(
-    function (socket) {
-      this.socket = socket
-      if (this.response) {
-        this.socket.on(
-          'data',
-          function (data) {
-            // deny request for SSL
-            if (data.length == 8) {
-              this.socket.write(Buffer.from('N', 'utf8'))
-              // consider all authentication requests as good
-            } else if (!data[0]) {
-              this.socket.write(buffers.authenticationOk())
-              // respond with our canned response
-            } else {
-              this.socket.write(this.response)
-            }
-          }.bind(this)
-        )
-      }
-    }.bind(this)
-  )
 
   port = port + 1
+
+  this.server = new WebSocketServer({port: port})
+  this.server.on('connection', function (socket) {
+    this.socket = socket
+    if (this.response) {
+      this.socket.on(
+        'message',
+        function (data) {
+          // deny request for SSL
+          if (data.length == 8) {
+            this.socket.send(Buffer.from('N', 'utf8'))
+            // consider all authentication requests as good
+          } else if (!data[0]) {
+            this.socket.send(buffers.authenticationOk())
+            // respond with our canned response
+          } else {
+            this.socket.send(this.response)
+          }
+        }.bind(this)
+      )
+    }
+  }.bind(this))
 
   var options = {
     host: 'localhost',
     port: port,
   }
-  this.server.listen(options.port, options.host, function () {
+  this.server.on('listening', function () {
     cb(options)
   })
 }
 
 Server.prototype.drop = function () {
-  this.socket.destroy()
+  this.socket.terminate()
 }
 
 Server.prototype.close = function (cb) {
