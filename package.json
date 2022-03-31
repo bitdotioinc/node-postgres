@@ -13,8 +13,6 @@
     "test": "yarn lerna exec yarn test",
     "build": "tsc --build",
     "build:watch": "tsc --build --watch",
-    "pretest": "yarn build",
-    "prepublish": "yarn build",
     "lint": "eslint '*/**/*.{js,ts,tsx}'"
   },
   "devDependencies": {
@@ -39,6 +37,7 @@
   "dependencies": {
     "is-ip": "^4.0.0",
     "pg": "^8.7.3",
+    "pg-types": "^4.0.0",
     "websocket-stream": "^5.5.2"
   }
 }
